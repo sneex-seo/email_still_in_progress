@@ -1,0 +1,245 @@
+import re
+
+import requests
+import trafilatura
+from bs4 import BeautifulSoup
+from requests_html import HTMLSession
+
+# получаем список доменов
+with open('emails.txt', 'r+', encoding='utf-8') as domains:
+    domain_list = [line.strip() for line in domains]
+
+# ставим стандартный заголовок
+headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36",
+"Accept-Encoding":"gzip, deflate", "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "DNT":"1","Connection":"close", "Upgrade-Insecure-Requests":"1"}
+
+
+# функция форматирования текста который ввиде текста
+def email_replace(regex_string_with_email):
+    email = (str(regex_string_with_email)) # take row with letters dot, at or @
+    scrape_email = email.replace("at:", "")
+    scrape_email = scrape_email.replace(" [@]", "@")
+    scrape_email = scrape_email.replace("[@] ", "@")
+    scrape_email = scrape_email.replace("[@]", "@")
+    scrape_email = scrape_email.replace("[DOT]", ".")
+    scrape_email = scrape_email.replace(" [DOT] ", ".")
+    scrape_email = scrape_email.replace(" [DOT]", ".")
+    scrape_email = scrape_email.replace("[DOT] ", ".")
+    scrape_email = scrape_email.replace("[dot]", ".")
+    scrape_email = scrape_email.replace(" [dot]", ".")
+    scrape_email = scrape_email.replace("[dot] ", ".")
+    scrape_email = scrape_email.replace(" [dot] ", ".")
+    scrape_email = scrape_email.replace(" (dot) ", ".")
+    scrape_email = scrape_email.replace(" (dot)", ".")
+    scrape_email = scrape_email.replace("(dot) ", ".")
+    scrape_email = scrape_email.replace("(dot)", ".")
+    scrape_email = scrape_email.replace("(DOT)", ".")
+    scrape_email = scrape_email.replace(" (DOT)", ".")
+    scrape_email = scrape_email.replace("(DOT) ", ".")
+    scrape_email = scrape_email.replace(" (DOT) ", ".")
+    scrape_email = scrape_email.replace(" dot", ".")
+    scrape_email = scrape_email.replace("dot ", ".")
+    scrape_email = scrape_email.replace(" dot ", ".")
+    scrape_email = scrape_email.replace("dot", ".")
+    scrape_email = scrape_email.replace(" DOT", ".")
+    scrape_email = scrape_email.replace("DOT ", ".")
+    scrape_email = scrape_email.replace(" DOT ", ".")
+    scrape_email = scrape_email.replace("DOT", ".")
+    scrape_email = scrape_email.replace("_at_", "@")
+    scrape_email = scrape_email.replace(" _at_ ", "@")
+    scrape_email = scrape_email.replace(" _at_", "@")
+    scrape_email = scrape_email.replace("_at_ ", "@")
+    scrape_email = scrape_email.replace("_AT_", "@")
+    scrape_email = scrape_email.replace(" _AT_ ", "@")
+    scrape_email = scrape_email.replace(" _AT_", "@")
+    scrape_email = scrape_email.replace("_AT_ ", "@")
+    scrape_email = scrape_email.replace("[at]", "@")
+    scrape_email = scrape_email.replace(" [at] ", "@")
+    scrape_email = scrape_email.replace(" [at]", "@")
+    scrape_email = scrape_email.replace("[at] ", "@")
+    scrape_email = scrape_email.replace("(AT) ", "@")
+    scrape_email = scrape_email.replace(" (AT)", "@")
+    scrape_email = scrape_email.replace(" (AT) ", "@")
+    scrape_email = scrape_email.replace("(AT)", "@")
+    scrape_email = scrape_email.replace(" [at] ", "@")
+    scrape_email = scrape_email.replace(" @ ", "@")
+    scrape_email = scrape_email.replace("@ ", "@")
+    scrape_email = scrape_email.replace(" @", "@")
+    scrape_email = scrape_email.replace(" . ", ".")
+    scrape_email = scrape_email.replace(" (@) ", "@")
+    scrape_email = scrape_email.replace(" (.) ", ".")
+    scrape_email = ' '.join(scrape_email.split())
+    return scrape_email
+
+# функция декодирования cdn имейла
+def cfDecodeEmail(encodedString):
+    r = int(encodedString[:2],16)
+    email = ''.join([chr(int(encodedString[i:i+2], 16) ^ r) for i in range(2, len(encodedString), 2)])
+    return email
+
+# функция для извлечения email с страницы контактов
+def get_email_from_contact_page(contact_page_url):
+
+    session = HTMLSession()
+    request_to_the_website = session.get(contact_page_url, headers=headers)
+
+    soup = BeautifulSoup(request_to_the_website.content, 'html.parser')
+
+    for rows in soup.find_all(href=True):
+        email_from_contact_page = ''
+        #проверяем если строка пустая, продолжаем искать строку, пока не найдем почту
+        if not re.findall("mailto:.*", str(rows)):
+            continue
+        else:
+        #регуляркой забираем email и записываем в переменную
+            email_from_contact_page = set(re.findall("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}", str(rows)))
+            domain_email = (str(email_from_contact_page))
+            break
+    
+    if not email_from_contact_page:
+        
+        print('не нашел в поле mailto: ищу в тексте')
+
+        downloaded = trafilatura.fetch_url(contact_page_url, decode=True)
+        
+        regex_for_cdn_check = '(?<=data-cfemail=").*(?=">)'
+
+        cdn_check = re.findall(regex_for_cdn_check, str(downloaded))
+
+        if not cdn_check:
+
+            clear_text = trafilatura.extract(downloaded)
+
+            regex_for_clear_text = '.*\[dot].*|.*\[@].*|.*\(dot\).*|.*\[at].*|.*\(at\).*|.*@.*'
+
+            result = re.findall(regex_for_clear_text, clear_text)
+
+            string_with_email = email_replace(result)
+
+            domain_email = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}", str(string_with_email))
+
+            return domain_email
+
+        else: 
+            domain_email =(cfDecodeEmail(cdn_check[0])) # usage
+            return domain_email
+    else:
+        domain_email = email_from_contact_page
+        return domain_email
+
+
+
+def emails_extcraction_from_website(website_list, protocol):
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36",
+              "Accept-Encoding":"gzip, deflate", "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "DNT":"1","Connection":"close", "Upgrade-Insecure-Requests":"1"}
+    
+    for links_extract_email in website_list:
+              
+        print("Start working on website:" + links_extract_email)
+
+        # поиск email в поле mailto
+        session = HTMLSession()
+
+        request_to_main_page = session.get(protocol + links_extract_email, headers=headers)
+
+        if request_to_main_page.status_code == 200:
+
+            soup = BeautifulSoup(request_to_main_page.content, 'html.parser')
+
+            # пробуем найти email в поле mailto
+            print("1. Looking for email in mailto field")
+            for rows in soup.find_all(href=True):
+                # print(rows)
+                email_from_main_page = ''
+                # проверяем если строка пустая, продолжаем искать строку, пока не найдем почту
+                if not re.findall("mailto:(.*)", str(rows)):
+                    continue
+                else:
+                # регуляркой забираем email и записываем в переменную
+                    email_from_main_page = set(re.findall("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}", str(rows)))
+                    print(str(email_from_main_page))
+                    with open('translate_en.txt', 'a', encoding='utf-8') as result_file:
+                        for result_exist_email_on_main_page in email_from_main_page:
+                                result_file.write(str(links_extract_email) + " " +str(result_exist_email_on_main_page) + '\n')
+                    break
+                    
+                
+            if not email_from_main_page:
+
+                # поиск email на главной странице если он текстом
+                print("2. Looking for email from main page in text field")
+                for rows in soup:
+                    email_from_main_page = ''
+                    # проверяем если строка пустая, продолжаем искать строку, пока не найдем почту
+                    if not re.findall("[A-Za-z0-9._%+-]+@[A-Za-z.-]+\.[A-Za-z]{2,4}", str(rows)):
+                        continue
+                    else:
+                    # регуляркой забираем email и записываем в переменную
+                        email_from_main_page = set(re.findall("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}", str(rows)))
+                        print(str(email_from_main_page))
+                        with open('translate_en.txt', 'a', encoding='utf-8') as result_file:
+                            for result_exist_email_on_main_page in email_from_main_page:
+                                    result_file.write(str(links_extract_email) + " " + str(result_exist_email_on_main_page) + '\n')
+                        break
+
+
+            # ищем страницу контактов и почту на ней
+            if not email_from_main_page:
+                if links_extract_email != None:
+                    main_page = links_extract_email
+                    if "%3D" not in links_extract_email:
+                        print("3. Scrape for contact page and looking for email from contact page")
+                        # начинаем сессию
+                        print("Work on contact page: " + links_extract_email)
+                        #создаем список с страницами с потенциальными данными
+                        links_from_main_page = []
+                        #создаем список с ссылками на возможные email
+                        links_on_potential_email_pages = []
+
+                        for link in soup.findAll('a'):
+                                links_from_main_page.append(link.get('href'))
+
+                        
+                        for raw_link in links_from_main_page:
+                            if raw_link != None and main_page in raw_link:
+                                if "contac" in raw_link or "write" in raw_link or "guest" in raw_link or "adverti" in raw_link:
+                                    contact_link_from_main_page = raw_link
+                                    links_on_potential_email_pages.append(raw_link)
+
+                        for links_extracted_from_main_page in links_on_potential_email_pages:
+                            email_from_text_in_contact_page = ''
+                            # extract email from text in contact page
+                            print("Try extract email from potential page: " + links_extracted_from_main_page)
+                            if not email_from_text_in_contact_page:
+                                email_from_text_in_contact_page = get_email_from_contact_page(links_extracted_from_main_page)
+                                continue
+                            else:
+                                break
+                    
+                        # check for exist of email from contact page
+                        if not email_from_text_in_contact_page:
+                            print("email don`t found")
+                            with open('translate_en.txt', 'a', encoding='utf-8') as result_file:
+                                result_file.write(str(contact_link_from_main_page) + " " + "Email don`t found"+ '\n')
+                        else:
+                            print("write data")
+                        # writing data into file
+                            with open('translate_en.txt', 'a', encoding='utf-8') as result_file:
+                                result_file.write(str(contact_link_from_main_page) + " " + str(email_from_text_in_contact_page) + '\n')
+        
+        
+        
+        
+        
+        else:
+            with open('translate_en.txt', 'a', encoding='utf-8') as result_file:
+                result_file.write("Сайт не работает" + '\n')
+
+try:
+    emails_extcraction_from_website(domain_list, "https://")
+except:
+    emails_extcraction_from_website(domain_list, "http://")
+    
+
+# fix error when parser get wrong page
